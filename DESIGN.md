@@ -75,5 +75,5 @@ structs returns `EOF` without allocating element storage.
 
 The Cargo package is `gld-kiln`. The Rust import name is `kiln`. The generator
 binary is `gld-kilngen-rust`. The version in `VERSION`, `Cargo.toml`, and
-`kiln::VERSION` starts at `0.1.0`. Publishing to crates.io runs only when
+`kiln::VERSION` is `0.2.0`. Publishing to crates.io runs only when
 `CARGO_REGISTRY_TOKEN` is set. This repository does not publish to prefix.dev.

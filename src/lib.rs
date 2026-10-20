@@ -29,4 +29,4 @@ pub use tensor::{
 pub use value::{Tensor, TensorDir, Value};
 
 /// Crate version. Kept in step with `VERSION` and `Cargo.toml`.
-pub const VERSION: &str = "0.1.0";
+pub const VERSION: &str = "0.2.0";
