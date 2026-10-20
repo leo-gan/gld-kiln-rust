@@ -1,0 +1,17 @@
+site_name: gld-kiln-rust
+site_description: From-scratch Kiln codec for Rust
+site_author: Leonid Ganeline
+site_url: https://leo-gan.github.io/gld-kiln-rust/
+repo_url: https://github.com/leo-gan/gld-kiln-rust
+repo_name: leo-gan/gld-kiln-rust
+copyright: Copyright &copy; 2026 Leonid Ganeline. MIT.
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: teal
+
+nav:
+  - Home: index.md
