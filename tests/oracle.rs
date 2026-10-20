@@ -127,10 +127,24 @@ fn kiln_ref_round_trip() {
             decode(&schema, &raw).unwrap_or_else(|err| panic!("{name} {}", err.name()))
         };
         match name {
-            "f32_neg0" => assert_eq!(value, Value::F32(0x8000_0000)),
-            "f32_qnan" => assert_eq!(value, Value::F32(0x7f80_0001)),
-            "f64_neg0" => assert_eq!(value, Value::F64(0x8000_0000_0000_0000)),
-            "f64_qnan" => assert_eq!(value, Value::F64(0x7ff8_0000_0000_0001)),
+            "f32_neg0" | "f32_qnan" => {
+                let bits = u32::from_le_bytes(raw[..4].try_into().unwrap());
+                assert_eq!(value, Value::F32(bits), "{name}");
+                if name.ends_with("neg0") {
+                    assert_eq!(bits, 0x8000_0000);
+                } else {
+                    assert!(f32::from_bits(bits).is_nan(), "{name} {:08x}", bits);
+                }
+            }
+            "f64_neg0" | "f64_qnan" => {
+                let bits = u64::from_le_bytes(raw[..8].try_into().unwrap());
+                assert_eq!(value, Value::F64(bits), "{name}");
+                if name.ends_with("neg0") {
+                    assert_eq!(bits, 0x8000_0000_0000_0000);
+                } else {
+                    assert!(f64::from_bits(bits).is_nan(), "{name} {:016x}", bits);
+                }
+            }
             "point" | "point_framed" => {
                 assert_eq!(
                     value,
