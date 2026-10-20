@@ -386,7 +386,10 @@ fn read_i32_i32_str_list<'a>(
             return Err(Error::Limit);
         }
         let start = p + 12;
-        let stop = start.checked_add(len as usize).ok_or(Error::Limit)?;
+        let Some(stop) = start.checked_add(len as usize) else {
+            *i = p;
+            return Err(Error::Eof);
+        };
         if stop > end {
             *i = p;
             return Err(Error::Eof);
@@ -394,9 +397,15 @@ fn read_i32_i32_str_list<'a>(
         let text = bytes_as_str(&buf[start..stop], trusted)?;
         p = stop;
         let mut values = bufs.pop().unwrap();
-        // SAFETY: pooled field buffers are empty and have room for three scalars.
+        if !values.is_empty() {
+            values.clear();
+        }
+        if values.capacity() < 3 {
+            values.reserve(3);
+        }
+        // SAFETY: `values` is empty and its capacity is at least 3. The three
+        // writes initialize those slots before `set_len` exposes them.
         unsafe {
-            values.set_len(0);
             let dst = values.as_mut_ptr();
             std::ptr::write(dst, Value::I32(x));
             std::ptr::write(dst.add(1), Value::I32(y));
