@@ -1,0 +1,43 @@
+name: Publish
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Package the crate without editing the release or calling crates.io
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Rust release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: bash scripts/ci-setup.sh
+      - name: Run tests
+        run: bash scripts/run-tests.sh
+      - name: Check generated
+        run: bash scripts/check-generated.sh
+      - name: Publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          PUBLISH_DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && "${PUBLISH_DRY_RUN}" == "true" ]]; then
+            bash scripts/publish.sh --dry-run
+          else
+            bash scripts/publish.sh
+          fi
