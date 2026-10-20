@@ -54,7 +54,8 @@ fi
 
 archive="${TMPDIR:-/tmp}/gld-kiln-${version}.crate"
 rm -f "${archive}"
-cargo package --allow-dirty --list >/dev/null
+cargo package --allow-dirty
+mkdir -p target/package
 crate="$(find target/package -maxdepth 1 -name "gld-kiln-${version}.crate" -print -quit)"
 if [[ -z "${crate}" ]]; then
   echo "cargo package did not write gld-kiln-${version}.crate" >&2
