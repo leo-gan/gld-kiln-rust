@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use kiln::{
     decode, encode_into, encode_tensors_into, write_i32, write_str, DecodeOpts, Reader, Schema,
-    Tensor, Value, DTYPE_F32, DEFAULT_CAP,
+    Tensor, Value, DEFAULT_CAP, DTYPE_F32,
 };
 
 const BATCH: usize = 1024;
@@ -20,11 +20,7 @@ fn point_schema() -> Schema {
 }
 
 fn point_value() -> Value<'static> {
-    Value::Struct(vec![
-        Value::I32(7),
-        Value::I32(-2),
-        Value::str("pt"),
-    ])
+    Value::Struct(vec![Value::I32(7), Value::I32(-2), Value::str("pt")])
 }
 
 fn batch_value(schema_item: &Value<'static>) -> Value<'static> {

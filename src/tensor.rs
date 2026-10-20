@@ -244,6 +244,9 @@ fn utf8(bytes: &[u8], trusted: bool) -> Result<&str, Error> {
 
 /// Decode one version-2 directory. `Tensor::data` aliases `buf`.
 pub fn decode_tensors<'a>(buf: &'a [u8], opts: DecodeOpts) -> Result<TensorDir<'a>, Error> {
+    if let Some(dir) = try_plain_one(buf, opts) {
+        return Ok(dir);
+    }
     if buf.len() < 4 {
         return Err(Error::Eof);
     }
@@ -274,7 +277,10 @@ pub fn decode_tensors<'a>(buf: &'a [u8], opts: DecodeOpts) -> Result<TensorDir<'
     if u64::from(count) > opts.cap || u64::from(name_bytes) > opts.cap {
         return Err(Error::Limit);
     }
-    let expect_dir = add_u64(mul_u64(u128::from(count), DESC as u128)? as u128, u128::from(name_bytes))?;
+    let expect_dir = add_u64(
+        mul_u64(u128::from(count), DESC as u128)? as u128,
+        u128::from(name_bytes),
+    )?;
     if directory_bytes != expect_dir {
         return Err(Error::Type);
     }
@@ -448,7 +454,8 @@ pub fn decode_tensors<'a>(buf: &'a [u8], opts: DecodeOpts) -> Result<TensorDir<'
     }
     let mut cursor = 0u64;
     for item in &raw {
-        if item.byte_offset > cursor && !zeros(&payload[cursor as usize..item.byte_offset as usize]) {
+        if item.byte_offset > cursor && !zeros(&payload[cursor as usize..item.byte_offset as usize])
+        {
             return Err(Error::Type);
         }
         cursor = item.byte_offset + item.byte_length;
@@ -481,6 +488,98 @@ pub fn decode_tensors<'a>(buf: &'a [u8], opts: DecodeOpts) -> Result<TensorDir<'
         tensors,
         block_len: block_end,
         names: names_flag,
+    })
+}
+
+/// Success-only path for one unnamed whole-byte tensor at offset 0.
+/// Any shape that might fail a check returns `None` so the full decoder
+/// keeps the golden error order.
+fn try_plain_one<'a>(buf: &'a [u8], opts: DecodeOpts) -> Option<TensorDir<'a>> {
+    if buf.len() < 192 || opts.cap == 0 {
+        return None;
+    }
+    if &buf[0..4] != b"KLNT" || buf[4] != 2 || buf[5] != FLAG_LE || lu16(buf, 6) != 0 {
+        return None;
+    }
+    if lu32(buf, 8) != 1 || lu32(buf, 12) != 0 || lu64(buf, 24) != DESC as u64 {
+        return None;
+    }
+    if !zeros(&buf[32..HEADER]) {
+        return None;
+    }
+    let base = HEADER;
+    if buf[base + 3] != 0 || !zeros(&buf[base + 112..base + DESC]) {
+        return None;
+    }
+    if lu16(buf, base + 4) != 0xffff
+        || lu16(buf, base + 6) != 0
+        || lu16(buf, base + 8) != 0xffff
+        || lu16(buf, base + 10) != 0
+        || lu32(buf, base + 12) != 0
+    {
+        return None;
+    }
+    let dtype = lu16(buf, base);
+    let width = whole_size(dtype)?;
+    let rank = buf[base + 2];
+    if rank > 8 {
+        return None;
+    }
+    let mut shape = [0u64; 8];
+    for (dim, slot) in shape.iter_mut().enumerate() {
+        *slot = lu64(buf, base + 48 + 8 * dim);
+    }
+    if shape[rank as usize..].iter().any(|dim| *dim != 0) {
+        return None;
+    }
+    let count = element_count(rank, &shape).ok()?;
+    let expect = mul_u64(count as u128, width as u128).ok()?;
+    let byte_offset = lu64(buf, base + 32);
+    let byte_length = lu64(buf, base + 40);
+    if byte_offset != 0 || byte_length != expect {
+        return None;
+    }
+    let payload_bytes = lu64(buf, 16);
+    if payload_bytes != byte_length {
+        return None;
+    }
+    let payload_len = usize::try_from(byte_length).ok()?;
+    let block_end = 192usize.checked_add(payload_len)?;
+    if block_end > buf.len() || (opts.standalone && block_end != buf.len()) {
+        return None;
+    }
+    if !opts.trusted {
+        let scheme = lu16(buf, base + 16);
+        if scheme != 0
+            || lu16(buf, base + 18) != 0xffff
+            || lu32(buf, base + 20) != 0
+            || lu32(buf, base + 24) != 0xffff_ffff
+            || lu32(buf, base + 28) != 0xffff_ffff
+        {
+            return None;
+        }
+        if dtype == DTYPE_BOOL && buf[192..block_end].iter().any(|byte| *byte > 1) {
+            return None;
+        }
+    }
+    let data = &buf[192..block_end];
+    Some(TensorDir {
+        tensors: vec![Tensor {
+            name: None,
+            dtype,
+            rank,
+            shape,
+            quant_scheme: lu16(buf, base + 16),
+            quant_axis: lu16(buf, base + 18),
+            group_size: lu32(buf, base + 20),
+            scale_index: lu32(buf, base + 24),
+            outer_index: lu32(buf, base + 28),
+            block_size: 0,
+            layout: None,
+            data,
+        }],
+        block_len: block_end,
+        names: false,
     })
 }
 
@@ -567,7 +666,10 @@ fn layout_tensors(tensors: &[Tensor<'_>], cap: u64) -> Result<Layout, Error> {
         end = add_u64(u128::from(off), tensor.data.len() as u128)?;
         offsets.push(off);
     }
-    let directory = add_u64(mul_u64(n as u128, DESC as u128)? as u128, heap.len() as u128)?;
+    let directory = add_u64(
+        mul_u64(n as u128, DESC as u128)? as u128,
+        heap.len() as u128,
+    )?;
     let payload_base = align64(add_u64(HEADER as u128, u128::from(directory))? as u128);
     if payload_base > u64::MAX as u128 {
         return Err(Error::Limit);
@@ -648,7 +750,11 @@ fn encode_plain_one(tensor: &Tensor<'_>, out: &mut Vec<u8>, cap: u64) -> Result<
 }
 
 /// Append one canonical version-2 directory.
-pub fn encode_tensors_into(tensors: &[Tensor<'_>], out: &mut Vec<u8>, cap: u64) -> Result<(), Error> {
+pub fn encode_tensors_into(
+    tensors: &[Tensor<'_>],
+    out: &mut Vec<u8>,
+    cap: u64,
+) -> Result<(), Error> {
     if let [tensor] = tensors {
         if tensor.name.is_none() && tensor.layout.is_none() {
             return encode_plain_one(tensor, out, cap);

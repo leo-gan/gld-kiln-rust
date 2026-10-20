@@ -30,7 +30,8 @@ bytes on encode. Decode rejects keys that are not strictly increasing.
 bytes. Other lists are a count plus concatenated elements. Before a list or
 dict allocates, the decoder requires `count * min_size(element)` to fit in the
 unread bytes. The default cap is 16,777,216 counts and 16 MiB for one string
-or byte run. A caller can raise the cap.
+or byte run. A caller can raise the cap. Nesting deeper than 64 containers
+is `LIMIT` on encode and decode.
 
 ## Tensor directory
 
