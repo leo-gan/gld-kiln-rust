@@ -1,0 +1,32 @@
+[package]
+name = "gld-kiln"
+version = "0.1.0"
+edition = "2021"
+description = "From-scratch Kiln wire codec and schema generator"
+license = "MIT"
+authors = ["Leonid Ganeline <leo.gan.57@gmail.com>"]
+repository = "https://github.com/leo-gan/gld-kiln-rust"
+readme = "README.md"
+rust-version = "1.70"
+autobenches = false
+keywords = ["kiln", "serialization", "tensor"]
+categories = ["encoding"]
+
+[lib]
+name = "kiln"
+path = "src/lib.rs"
+
+[[bin]]
+name = "gld-kilngen-rust"
+path = "src/main.rs"
+
+[[bin]]
+name = "kiln-bench"
+path = "benches/microbench.rs"
+
+[[example]]
+name = "point_roundtrip"
+path = "examples/point_roundtrip.rs"
+
+[dependencies]
+serde_json = { version = "1", features = ["preserve_order"] }
