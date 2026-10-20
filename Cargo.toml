@@ -1,6 +1,6 @@
 [package]
 name = "gld-kiln"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "From-scratch Kiln wire codec and schema generator"
 license = "MIT"

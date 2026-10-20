@@ -12,7 +12,7 @@ cargo add gld-kiln
 
 ```toml
 [dependencies]
-gld-kiln = "0.1.0"
+gld-kiln = "0.2.0"
 ```
 
 `use kiln::{decode, encode, Schema, Value}` then resolves the dynamic codec.
