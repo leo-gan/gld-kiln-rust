@@ -318,6 +318,9 @@ fn read_list<'a>(
             let n = list_count_at(buf, i, 1, cap)?;
             Ok(Value::I8s(Cow::Borrowed(read_raw(buf, i, n as usize)?)))
         }
+        Schema::F32 => Ok(Value::F32s(read_pod_list(buf, i, 4, cap)?)),
+        Schema::F64 => Ok(Value::F64s(read_pod_list(buf, i, 8, cap)?)),
+        Schema::I64 | Schema::Int => Ok(Value::I64s(read_pod_list(buf, i, 8, cap)?)),
         Schema::Struct(fields) => {
             let n = list_count_at(buf, i, min_size(elem), cap)?;
             if n > 0 && depth >= MAX_DEPTH {
@@ -508,6 +511,48 @@ fn read_raw<'a>(buf: &'a [u8], i: &mut usize, n: usize) -> Result<&'a [u8], Erro
 fn read_bytes<'a>(buf: &'a [u8], i: &mut usize, cap: u64) -> Result<&'a [u8], Error> {
     let n = list_count_at(buf, i, 1, cap)?;
     read_raw(buf, i, n as usize)
+}
+
+/// Count plus a borrowed body. `width` is the element size in bytes.
+/// The count is rejected before any element storage is allocated.
+fn read_pod_list<'a>(
+    buf: &'a [u8],
+    i: &mut usize,
+    width: u64,
+    cap: u64,
+) -> Result<Cow<'a, [u8]>, Error> {
+    let n = list_count_at(buf, i, width, cap)?;
+    let nbytes = u64::from(n).checked_mul(width).ok_or(Error::Limit)?;
+    Ok(Cow::Borrowed(read_raw(buf, i, nbytes as usize)?))
+}
+
+fn write_aligned_bytes(
+    out: &mut Vec<u8>,
+    data: &[u8],
+    width: usize,
+    cap: u64,
+) -> Result<(), Error> {
+    if width == 0 || data.len() % width != 0 {
+        return Err(Error::Type);
+    }
+    write_count(out, data.len() / width, cap)?;
+    push_bytes(out, data);
+    Ok(())
+}
+
+fn pod_list_len(data: &[u8], width: usize, cap: u64) -> Result<usize, Error> {
+    if width == 0 || data.len() % width != 0 {
+        return Err(Error::Type);
+    }
+    counted_width(data.len() / width, width, cap)
+}
+
+fn counted_width(count: usize, width: usize, cap: u64) -> Result<usize, Error> {
+    if count > u32::MAX as usize || count as u64 > cap {
+        return Err(Error::Limit);
+    }
+    let body = count.checked_mul(width).ok_or(Error::Limit)?;
+    4usize.checked_add(body).ok_or(Error::Limit)
 }
 
 fn read_string<'a>(
@@ -805,18 +850,48 @@ fn write_list(
             }
             _ => return Err(Error::Type),
         },
-        Schema::F32 => {
-            let Value::List(items) = value else {
-                return Err(Error::Type);
-            };
-            write_count(out, items.len(), cap)?;
-            for item in items {
-                let Value::F32(bits) = item else {
-                    return Err(Error::Type);
-                };
-                push_bytes(out, &bits.to_le_bytes());
+        Schema::F32 => match value {
+            Value::F32s(data) => write_aligned_bytes(out, data, 4, cap)?,
+            Value::List(items) => {
+                write_count(out, items.len(), cap)?;
+                out.reserve(items.len().saturating_mul(4));
+                for item in items {
+                    let Value::F32(bits) = item else {
+                        return Err(Error::Type);
+                    };
+                    push_bytes(out, &bits.to_le_bytes());
+                }
             }
-        }
+            _ => return Err(Error::Type),
+        },
+        Schema::F64 => match value {
+            Value::F64s(data) => write_aligned_bytes(out, data, 8, cap)?,
+            Value::List(items) => {
+                write_count(out, items.len(), cap)?;
+                out.reserve(items.len().saturating_mul(8));
+                for item in items {
+                    let Value::F64(bits) = item else {
+                        return Err(Error::Type);
+                    };
+                    push_bytes(out, &bits.to_le_bytes());
+                }
+            }
+            _ => return Err(Error::Type),
+        },
+        Schema::I64 | Schema::Int => match value {
+            Value::I64s(data) => write_aligned_bytes(out, data, 8, cap)?,
+            Value::List(items) => {
+                write_count(out, items.len(), cap)?;
+                out.reserve(items.len().saturating_mul(8));
+                for item in items {
+                    let Value::I64(bits) = item else {
+                        return Err(Error::Type);
+                    };
+                    push_bytes(out, &bits.to_le_bytes());
+                }
+            }
+            _ => return Err(Error::Type),
+        },
         Schema::Struct(fields) => {
             let Value::List(items) = value else {
                 return Err(Error::Type);
@@ -978,6 +1053,21 @@ fn list_len(elem: &Schema, value: &Value<'_>, cap: u64) -> Result<usize, Error> 
                 }
                 Ok(4 + items.len())
             }
+            _ => Err(Error::Type),
+        },
+        Schema::F32 => match value {
+            Value::F32s(data) => pod_list_len(data, 4, cap),
+            Value::List(items) => counted_width(items.len(), 4, cap),
+            _ => Err(Error::Type),
+        },
+        Schema::F64 => match value {
+            Value::F64s(data) => pod_list_len(data, 8, cap),
+            Value::List(items) => counted_width(items.len(), 8, cap),
+            _ => Err(Error::Type),
+        },
+        Schema::I64 | Schema::Int => match value {
+            Value::I64s(data) => pod_list_len(data, 8, cap),
+            Value::List(items) => counted_width(items.len(), 8, cap),
             _ => Err(Error::Type),
         },
         _ => {
@@ -1503,6 +1593,9 @@ fn is_plain(value: &Value<'_>) -> bool {
         Value::Str(Cow::Owned(_))
             | Value::Bytes(Cow::Owned(_))
             | Value::I8s(Cow::Owned(_))
+            | Value::F32s(Cow::Owned(_))
+            | Value::F64s(Cow::Owned(_))
+            | Value::I64s(Cow::Owned(_))
             | Value::List(_)
             | Value::Struct(_)
             | Value::Dict(_)

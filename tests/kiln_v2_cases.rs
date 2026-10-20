@@ -3,7 +3,7 @@
 //! Accept cases decode, match `decoded` when present, and re-encode to the same bytes.
 //! Reject cases return the named error.
 
-use kiln::{decode, decode_framed, encode, encode_framed, dtype_name, DecodeOpts, Schema, Value};
+use kiln::{decode, decode_framed, dtype_name, encode, encode_framed, DecodeOpts, Schema, Value};
 
 fn cases_doc() -> serde_json::Value {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/kiln-v2-cases.json");
@@ -83,7 +83,10 @@ fn case_schema(value: &serde_json::Value) -> (Schema, bool) {
     }
     let obj = value.as_object().expect("schema object");
     match obj["type"].as_str().expect("schema type") {
-        "list" => (Schema::list(parse_ty(obj["element"].as_str().unwrap())), false),
+        "list" => (
+            Schema::list(parse_ty(obj["element"].as_str().unwrap())),
+            false,
+        ),
         "struct" => {
             let mut fields = Vec::new();
             for item in obj["fields"].as_array().expect("fields") {
@@ -148,12 +151,15 @@ fn project(schema: &Schema, value: &Value<'_>) -> serde_json::Value {
             _ => panic!("str"),
         },
         Schema::Bytes => panic!("bytes have no golden projection"),
-        Schema::List(elem) => {
-            let Value::List(items) = value else {
-                panic!("list");
-            };
-            serde_json::Value::Array(items.iter().map(|item| project(elem, item)).collect())
-        }
+        Schema::List(elem) => match value {
+            Value::List(items) => {
+                serde_json::Value::Array(items.iter().map(|item| project(elem, item)).collect())
+            }
+            Value::F32s(data) => project_f32s(data),
+            Value::F64s(data) => project_f64s(data),
+            Value::I64s(data) => project_i64s(data),
+            _ => panic!("list"),
+        },
         Schema::Opt(inner) => match value {
             Value::Opt(None) => serde_json::Value::Null,
             Value::Opt(Some(inner_value)) => project(inner, inner_value),
@@ -269,11 +275,48 @@ fn first_diff(left: &[u8], right: &[u8]) -> String {
     format!("length got {} exp {}", left.len(), right.len())
 }
 
+fn project_f32s(data: &[u8]) -> serde_json::Value {
+    serde_json::Value::Array(
+        data.chunks_exact(4)
+            .map(|chunk| {
+                let bits = u32::from_le_bytes(chunk.try_into().unwrap());
+                num_f64(f32::from_bits(bits) as f64)
+            })
+            .collect(),
+    )
+}
+
+fn project_f64s(data: &[u8]) -> serde_json::Value {
+    serde_json::Value::Array(
+        data.chunks_exact(8)
+            .map(|chunk| {
+                let bits = u64::from_le_bytes(chunk.try_into().unwrap());
+                num_f64(f64::from_bits(bits))
+            })
+            .collect(),
+    )
+}
+
+fn project_i64s(data: &[u8]) -> serde_json::Value {
+    serde_json::Value::Array(
+        data.chunks_exact(8)
+            .map(|chunk| num_i64(i64::from_le_bytes(chunk.try_into().unwrap())))
+            .collect(),
+    )
+}
+
 fn payload_in_input(buf: &[u8], value: &Value<'_>) -> bool {
     match value {
         Value::Tensors(dir) => dir.tensors.iter().all(|tensor| slice_in(buf, tensor.data)),
-        Value::Struct(items) | Value::List(items) => items.iter().all(|item| payload_in_input(buf, item)),
+        Value::Struct(items) | Value::List(items) => {
+            items.iter().all(|item| payload_in_input(buf, item))
+        }
         Value::Opt(Some(inner)) => payload_in_input(buf, inner),
+        Value::Bytes(data)
+        | Value::I8s(data)
+        | Value::F32s(data)
+        | Value::F64s(data)
+        | Value::I64s(data) => slice_in(buf, data),
         _ => true,
     }
 }
@@ -310,7 +353,10 @@ fn loads_kiln_v2_cases() {
             "accept" => {
                 accept += 1;
                 let value = decoded.unwrap_or_else(|err| panic!("{id}: decode {}", err.name()));
-                assert!(payload_in_input(&input, &value), "{id}: payload is not a view");
+                assert!(
+                    payload_in_input(&input, &value),
+                    "{id}: payload is not a view"
+                );
                 if let Some(recorded) = case.get("decoded") {
                     let mut got = project(&schema, &value);
                     if framed {
@@ -326,12 +372,14 @@ fn loads_kiln_v2_cases() {
                     );
                 }
                 let encoded = if framed {
-                    encode_framed(&schema, &value).unwrap_or_else(|err| panic!("{id}: {}", err.name()))
+                    encode_framed(&schema, &value)
+                        .unwrap_or_else(|err| panic!("{id}: {}", err.name()))
                 } else {
                     encode(&schema, &value).unwrap_or_else(|err| panic!("{id}: {}", err.name()))
                 };
                 assert_eq!(
-                    encoded, input,
+                    encoded,
+                    input,
                     "{id}: re-encode {}",
                     first_diff(&encoded, &input)
                 );
