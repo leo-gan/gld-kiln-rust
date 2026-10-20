@@ -75,6 +75,15 @@ pub enum Value<'a> {
     Str(Cow<'a, str>),
     Bytes(Cow<'a, [u8]>),
     I8s(Cow<'a, [u8]>),
+    /// Little-endian `f32` bits. Length is a multiple of 4.
+    /// A decoded `list<f32>` borrows the input buffer.
+    F32s(Cow<'a, [u8]>),
+    /// Little-endian `f64` bits. Length is a multiple of 8.
+    /// A decoded `list<f64>` borrows the input buffer.
+    F64s(Cow<'a, [u8]>),
+    /// Little-endian `i64` bits. Length is a multiple of 8.
+    /// A decoded `list<i64>` borrows the input buffer.
+    I64s(Cow<'a, [u8]>),
     List(Vec<Value<'a>>),
     Opt(Option<Box<Value<'a>>>),
     Dict(Vec<(Cow<'a, str>, Value<'a>)>),

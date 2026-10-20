@@ -31,12 +31,47 @@ fn negative_zero_and_nan_payload_round_trip() {
     raw.extend_from_slice(&(-0.0f64).to_bits().to_le_bytes());
     raw.extend_from_slice(&0x7ff8_0000_0000_0001u64.to_le_bytes());
     let value = decode(&schema, &raw).unwrap();
-    let Value::List(items) = &value else {
-        panic!("list");
+    let Value::F64s(data) = &value else {
+        panic!("f64 list");
     };
-    assert_eq!(items[0], Value::F64((-0.0f64).to_bits()));
-    assert_eq!(items[1], Value::F64(0x7ff8_0000_0000_0001));
+    assert!(matches!(data, Cow::Borrowed(_)));
+    assert_eq!(
+        u64::from_le_bytes(data[0..8].try_into().unwrap()),
+        (-0.0f64).to_bits()
+    );
+    assert_eq!(
+        u64::from_le_bytes(data[8..16].try_into().unwrap()),
+        0x7ff8_0000_0000_0001
+    );
     assert_eq!(encode(&schema, &value).unwrap(), raw);
+    let listed = Value::List(vec![
+        Value::F64((-0.0f64).to_bits()),
+        Value::F64(0x7ff8_0000_0000_0001),
+    ]);
+    assert_eq!(encode(&schema, &listed).unwrap(), raw);
+}
+
+#[test]
+fn f32_list_borrows_the_body() {
+    let schema = Schema::list(Schema::F32);
+    let mut raw = vec![2, 0, 0, 0];
+    raw.extend_from_slice(&1.0f32.to_bits().to_le_bytes());
+    raw.extend_from_slice(&(-2.0f32).to_bits().to_le_bytes());
+    let value = decode(&schema, &raw).unwrap();
+    let Value::F32s(data) = &value else {
+        panic!("f32 list");
+    };
+    assert!(matches!(data, Cow::Borrowed(_)));
+    assert!(data.as_ptr() == raw[4..].as_ptr());
+    assert_eq!(encode(&schema, &value).unwrap(), raw);
+    let empty = Value::F32s(Cow::Borrowed(&[]));
+    let encoded = encode(&schema, &empty).unwrap();
+    assert_eq!(encoded, [0, 0, 0, 0]);
+    let back = decode(&schema, &encoded).unwrap();
+    let Value::F32s(data) = &back else {
+        panic!("empty f32 list");
+    };
+    assert!(data.is_empty());
 }
 
 #[test]

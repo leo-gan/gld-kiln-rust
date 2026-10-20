@@ -27,9 +27,11 @@ zero and a quiet NaN payload round-trip. Dict keys are sorted by raw UTF-8
 bytes on encode. Decode rejects keys that are not strictly increasing.
 
 `opt` is a `0` or `1` tag. `list<u8>` and `list<i8>` are a `u32` count plus raw
-bytes. Other lists are a count plus concatenated elements. Before a list or
-dict allocates, the decoder requires `count * min_size(element)` to fit in the
-unread bytes. The default cap is 16,777,216 counts and 16 MiB for one string
+bytes. `list<f32>`, `list<f64>`, and `list<i64>` decode the same way: a count
+plus one borrowed little-endian run (`F32s`, `F64s`, `I64s`), not one `Value`
+per element. Encode accepts that run or a `List` of scalars. Other lists are a
+count plus concatenated elements. Before a list or dict allocates, the decoder
+requires `count * min_size(element)` to fit in the unread bytes. The default cap is 16,777,216 counts and 16 MiB for one string
 or byte run. A caller can raise the cap. Nesting deeper than 64 containers
 is `LIMIT` on encode and decode.
 

@@ -113,7 +113,38 @@ fn bench_tensor() {
     );
 }
 
+fn bench_f32_list() {
+    const N: usize = 1024 * 1024;
+    let mut body = vec![0u8; N * 4];
+    body[0] = 0x00;
+    body[1] = 0x00;
+    body[2] = 0x00;
+    body[3] = 0x80; // negative zero
+    let schema = Schema::list(Schema::F32);
+    let value = Value::F32s(std::borrow::Cow::Borrowed(&body));
+    let mut buf = Vec::new();
+    encode_into(&schema, &value, &mut buf, DEFAULT_CAP).unwrap();
+    let encoded = buf.clone();
+    let encode_ns = time_ns(|| {
+        buf.clear();
+        encode_into(&schema, &value, &mut buf, DEFAULT_CAP).unwrap();
+        black_box(buf.len());
+    });
+    let decode_ns = time_ns(|| {
+        let back = decode(&schema, &encoded).unwrap();
+        let Value::F32s(data) = &back else {
+            panic!("f32 list");
+        };
+        black_box(data.len());
+    });
+    println!(
+        "f32_list count={N} encode_ns={encode_ns} decode_ns={decode_ns} bytes={}",
+        encoded.len()
+    );
+}
+
 fn main() {
     bench_struct_batch();
     bench_tensor();
+    bench_f32_list();
 }
